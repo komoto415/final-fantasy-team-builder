@@ -1,14 +1,13 @@
 from enum import IntEnum, auto, unique
 from itertools import combinations, chain
 import csv
-from os import execlpe
 
 NUM_TANKS = 4
 NUM_HEALERS = 4
 NUM_MELEES = 5
 NUM_PHYSICAL_RANGE = 3
 NUM_MAGICAL_RANGE = 4
-FIELDS = ["T1", "T2", "H1", "H2", "M1", "M2", "R1", "R2", ]
+FIELDS = ["T1", "T2", "H1", "H2", "D1", "D2", "D3", "D4", ]
 FILENAME = "savage_comps"
 
 @unique
@@ -18,6 +17,10 @@ class Class(IntEnum):
     MELEE = 2
     PHYSICAL_RANGE = 3
     MAGICAL_RANGE = 4
+
+    @staticmethod
+    def DPS():
+        return 2
 
 @unique
 class Job(IntEnum):
@@ -58,6 +61,21 @@ class Job(IntEnum):
             [cls.BLM, cls.SMN, cls.RDM, cls.BLU],
             ]
         return groupings[class_int]
+
+    @classmethod
+    def job_groups_by_trifecta(cls, t_h_d):
+        assert 0 <= t_h_d <= 2
+
+        groupings = [
+            [cls.PLD, cls.WAR, cls.DRK, cls.GNB],
+            [cls.WHM, cls.SCH, cls.AST, cls.SGE],
+            [
+                cls.MNK, cls.DRG, cls.NIN, cls.SAM, cls.RPR,
+                cls.BRD, cls.MCH, cls.DNC,
+                cls.BLM, cls.SMN, cls.RDM, cls.BLU
+                ],
+            ]
+        return groupings[t_h_d]
 
     @staticmethod
     def from_name(label):
@@ -112,7 +130,8 @@ class Job(IntEnum):
 POACHED = {
     "Celaena": {
         "primary": [
-            Job.AST
+            Job.AST,
+            Job.SGE
             ],
         "secondary": [
             Job.WHM,
@@ -154,7 +173,6 @@ POACHED = {
         "secondary": [
             Job.SMN,
             Job.DRG,
-            Job.DRK
             ],
         "tertiary": [
 
@@ -269,91 +287,103 @@ def no_pref():
     return poached_aux
 
 def bucket_method(pref_matters=False):
-    by_class = [set(), set(), set(), set()]
-
-    poached_aux = primary_only() if pref_matters else no_pref()
+    heal_tank = (set(), set())
+    dps_bucket = set()
+    name_and_roles_dict = primary_only() if pref_matters else no_pref()
 
     # print(poached_aux)
 
     # creating class buckets and associating names to jobs
-    for name, roles in poached_aux.items():
+    for name, roles in name_and_roles_dict.items():
         for role in roles:
             # print(role.value)
             val = (name, role)
-            if role.value in Job.job_groups_by_class(Class.TANK):
-                by_class[Class.TANK].add(val)
-            elif role.value in Job.job_groups_by_class(Class.HEALER):
-                by_class[Class.HEALER].add(val)
-            elif role.value in Job.job_groups_by_class(Class.MELEE):
-                by_class[Class.MELEE].add(val)
-            elif role.value in Job.job_groups_by_class(Class.PHYSICAL_RANGE) or role.value in Job.job_groups_by_class(
-                    Class.MAGICAL_RANGE):
-                by_class[3].add(val)
+            if role.value in Job.job_groups_by_trifecta(Class.TANK):
+                heal_tank[Class.TANK].add(val)
+            elif role.value in Job.job_groups_by_trifecta(Class.HEALER):
+                heal_tank[Class.HEALER].add(val)
+            elif role.value in Job.job_groups_by_trifecta(Class.DPS()):
+                dps_bucket.add(val)
 
-    four_to_two = [set(), set()]
-    # t h m r -> t/h m/r
-    for i, grouping in enumerate(by_class):
-        combs = set(list(combinations(grouping, 2)))
-        for comb in combs:
-            names = {
+    tank_heal_pairs = set()
+    for grouping in heal_tank:
+        final_combs = set(list(combinations(grouping, 2)))
+        for comb in final_combs:
+            comb_names = {
                 comb[0][0], comb[1][0],
                 }
-            jobs = {
+            comb_jobs = {
                 comb[0][1], comb[1][1],
                 }
             # filter out combinations with duplicate names or duplicate jobs
-            if len(names) == 2 and len(jobs) == 2:
-                if i == 0 or i == 1:
-                    four_to_two[0].add(comb)
-                else:
-                    four_to_two[1].add(comb)
+            if len(comb_names) == 2 and len(comb_jobs) == 2:
+                tank_heal_pairs.add(comb)
 
     two_to_one = set()
-    # t/h m/r -> t/h/m/r
-    for grouping in four_to_two:
-        combs = set(list(combinations(grouping, 2)))
-        for comb in combs:
-            names = {
-                comb[0][0][0], comb[0][1][0],
-                comb[1][0][0], comb[1][1][0]
-                }
-            jobs = {
-                comb[0][0][1], comb[0][1][1],
-                comb[1][0][1], comb[1][1][1]
-                }
-            # filter out combinations with duplicate names or duplicate jobs
-            if len(names) == 4 and len(jobs) == 4:
+
+    tank_heal_quads = set(list(combinations(tank_heal_pairs, 2)))
+    for comb in tank_heal_quads:
+        comb = (comb[0][0], comb[0][1], comb[1][0], comb[1][1])
+        comb_names = {
+            comb[0][0], comb[1][0], comb[2][0], comb[3][0],
+            }
+        comb_jobs = {
+            comb[0][1], comb[1][1], comb[2][1], comb[3][1],
+            }
+        # filter out combinations with duplicate names or duplicate jobs
+        if len(comb_names) == 4 and len(comb_jobs) == 4:
+            two_to_one.add(comb)
+
+    dps_quads = set(list(combinations(dps_bucket, 4)))
+    for comb in dps_quads:
+        comb_names = {
+            comb[0][0], comb[1][0], comb[2][0], comb[3][0],
+            }
+        comb_jobs = {
+            comb[0][1], comb[1][1], comb[2][1], comb[3][1],
+            }
+        # filter out combinations with duplicate names or duplicate jobs
+        if len(comb_names) == 4 and len(comb_jobs) == 4:
+            five_percent_check = [-1, -1, -1]
+            for job in comb_jobs:
+                if job in Job.job_groups_by_class(Class.MELEE):
+                    five_percent_check[0] += 1
+                elif job in Job.job_groups_by_class(Class.PHYSICAL_RANGE):
+                    five_percent_check[1] += 1
+                elif job in Job.job_groups_by_class(Class.MAGICAL_RANGE):
+                    five_percent_check[2] += 1
+            if not -1 in five_percent_check:
                 two_to_one.add(comb)
 
     csv_format = []
     # final combinations
-    combs = set(list(combinations(two_to_one, 2)))
-    for comb in combs:
-        names = {
-            comb[0][0][0][0], comb[0][0][1][0], comb[0][1][0][0], comb[0][1][1][0],
-            comb[1][0][0][0], comb[1][0][1][0], comb[1][1][0][0], comb[1][1][1][0],
+    final_combs = list(combinations(two_to_one, 2))
+    for comb in final_combs:
+        comb = [comb[0][0], comb[0][1], comb[0][2], comb[0][3],
+                comb[1][0], comb[1][1], comb[1][2], comb[1][3]]
+        comb_names = {
+            comb[0][0], comb[1][0], comb[2][0], comb[3][0],
+            comb[4][0], comb[5][0], comb[6][0], comb[7][0],
             }
-        jobs = [
-            comb[0][0][0][1], comb[0][0][1][1], comb[0][1][0][1], comb[0][1][1][1],
-            comb[1][0][0][1], comb[1][0][1][1], comb[1][1][0][1], comb[1][1][1][1],
+        comb_jobs = [
+            comb[0][1], comb[1][1], comb[2][1], comb[3][1],
+            comb[4][1], comb[5][1], comb[6][1], comb[7][1],
             ]
         # filter out combinations with duplicate names or duplicate jobs
-        if len(names) == 8 and len(set(jobs)) == 8:
-            jobs.sort()
-            # Making sure the job complies with a 2-2-2-2
-            if all(job in Job.job_groups_by_class(Class.TANK) for job in (jobs[0], jobs[1])) and \
-                    all(job in Job.job_groups_by_class(Class.HEALER) for job in (jobs[2], jobs[3])) and \
-                    all(job in Job.job_groups_by_class(Class.MELEE) for job in (jobs[4], jobs[5])) and \
-                    all(job in Job.job_groups_by_class(Class.PHYSICAL_RANGE) + Job.job_groups_by_class(
-                            Class.MAGICAL_RANGE) for job in (jobs[6], jobs[7])):
+        if len(comb_names) == 8 and len(set(comb_jobs)) == 8:
+            comb_jobs.sort()
+            # Making sure the job complies with a 2-2-4
+            if all(job in Job.job_groups_by_trifecta(Class.TANK) for job in (comb_jobs[0], comb_jobs[1])) and \
+                    all(job in Job.job_groups_by_trifecta(Class.HEALER) for job in (comb_jobs[2], comb_jobs[3])) and \
+                    all(job in Job.job_groups_by_trifecta(Class.DPS()) for job in (comb_jobs[4], comb_jobs[5],
+                                                                                   comb_jobs[6], comb_jobs[7])):
 
                 # CSV formatting
-                comp = list(chain.from_iterable((chain.from_iterable(comb))))
-                comp.sort(key=lambda x: x[1])
-                comp_abvr = [f"{name} {job.name}" for name, job in comp]
+                comb.sort(key=lambda x: x[1])
+                comp_abvr = [f"{name} {job.name}" for name, job in comb]
                 csv_format.append(comp_abvr)
 
-    filename = f"{FILENAME}_bucket_method_combined_prefs.csv"
+    filename = f"{FILENAME}_bucket_method_combined_prefs_five_percent.csv"
     file_writer(filename, csv_format)
 
 def file_writer(filename, csv_formatted_data):
@@ -605,7 +635,7 @@ if __name__ == "__main__":
     print("Updating CSV...")
     bucket_method()
     print("Updating Complete...")
-    filename = f"{FILENAME}_bucket_method_combined_prefs.csv"
+    filename = f"{FILENAME}_bucket_method_combined_prefs_five_percent.csv"
     with open(filename, "r", newline="") as csvfile:
         csv_reader = csv.reader(csvfile, delimiter=',')
         comps = list(csv_reader)
